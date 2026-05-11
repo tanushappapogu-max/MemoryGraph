@@ -40,7 +40,7 @@ export default async function Dashboard() {
         <Stat label="Memory nodes" value={`${counts[2]} / ${counts[3]} edges`} icon={Database} />
       </div>
 
-      <MemoryGraph memories={graph.memories} edges={graph.edges} patterns={graph.patterns} />
+      <MemoryGraph memories={graph.memories} edges={graph.edges} patterns={graph.patterns} topics={graph.topics} />
 
       <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
         <section className="rounded-lg border border-ink/10 bg-white/85 p-5 shadow-panel">

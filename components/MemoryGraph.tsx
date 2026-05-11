@@ -26,7 +26,26 @@ type GraphPattern = {
   confidence: number;
 };
 
-export function MemoryGraph({ memories, edges = [], patterns = [] }: { memories: GraphMemory[]; edges?: GraphEdge[]; patterns?: GraphPattern[] }) {
+type HeatTopic = {
+  id: string;
+  name: string;
+  category: string;
+  mentionCount: number;
+  heatScore: number;
+  lastMentionedAt: Date | null;
+};
+
+export function MemoryGraph({
+  memories,
+  edges = [],
+  patterns = [],
+  topics = [],
+}: {
+  memories: GraphMemory[];
+  edges?: GraphEdge[];
+  patterns?: GraphPattern[];
+  topics?: HeatTopic[];
+}) {
   const grouped = memories.reduce<Record<string, GraphMemory[]>>((acc, memory) => {
     const key = memory.type;
     acc[key] = acc[key] ?? [];
@@ -39,6 +58,13 @@ export function MemoryGraph({ memories, edges = [], patterns = [] }: { memories:
   const positions = memories.slice(0, 14).reduce<Record<string, { x: number; y: number }>>((acc, memory, index, items) => {
     const angle = (Math.PI * 2 * index) / Math.max(items.length, 1) - Math.PI / 2;
     acc[memory.id] = { x: center + Math.cos(angle) * radius, y: center + Math.sin(angle) * radius };
+    return acc;
+  }, {});
+  const hotTopics = topics.slice(0, 10);
+  const heatPositions = hotTopics.reduce<Record<string, { x: number; y: number }>>((acc, topic, index, items) => {
+    const angle = (Math.PI * 2 * index) / Math.max(items.length, 1) - Math.PI / 2;
+    const topicRadius = 116 + (index % 2) * 34;
+    acc[topic.id] = { x: center + Math.cos(angle) * topicRadius, y: center + Math.sin(angle) * topicRadius };
     return acc;
   }, {});
 
@@ -70,6 +96,19 @@ export function MemoryGraph({ memories, edges = [], patterns = [] }: { memories:
             </defs>
             <circle cx={center} cy={center} r="48" fill="#31C48D" opacity="0.12" />
             <circle cx={center} cy={center} r="10" fill="#31C48D" filter="url(#glow)" />
+            {hotTopics.map((topic) => {
+              const position = heatPositions[topic.id];
+              const size = Math.min(42, 8 + Math.log2(topic.heatScore + 1) * 5);
+              return (
+                <g key={topic.id}>
+                  <circle cx={position.x} cy={position.y} r={size + 6} fill={topic.category === "workstream" ? "#31C48D" : "#D97745"} opacity="0.12" />
+                  <circle cx={position.x} cy={position.y} r={size} fill={topic.category === "workstream" ? "#31C48D" : "#D97745"} opacity="0.72" filter="url(#glow)" />
+                  <text x={position.x} y={position.y + size + 13} textAnchor="middle" className="fill-white text-[9px]">
+                    {topic.name}
+                  </text>
+                </g>
+              );
+            })}
             {edges.slice(0, 24).map((edge) => {
               const from = positions[edge.fromMemoryId];
               const to = positions[edge.toMemoryId];
@@ -91,7 +130,7 @@ export function MemoryGraph({ memories, edges = [], patterns = [] }: { memories:
               const position = positions[memory.id];
               return (
                 <g key={memory.id}>
-                  <circle cx={position.x} cy={position.y} r={7 + memory.importanceScore} fill={memory.person.company === "Internal" ? "#31C48D" : "#D97745"} opacity="0.92" />
+                  <circle cx={position.x} cy={position.y} r={5 + memory.importanceScore} fill="#FFFFFF" opacity="0.82" />
                   <text x={position.x} y={position.y + 24} textAnchor="middle" className="fill-white text-[9px]">
                     {memory.type.slice(0, 10)}
                   </text>
@@ -100,12 +139,26 @@ export function MemoryGraph({ memories, edges = [], patterns = [] }: { memories:
             })}
           </svg>
           <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-white/60">
-            <span className="flex items-center gap-2"><Radio size={13} className="text-signal" /> Internal memory</span>
-            <span className="flex items-center gap-2"><GitBranch size={13} className="text-copper" /> Customer memory</span>
+            <span className="flex items-center gap-2"><Radio size={13} className="text-signal" /> Hot topic point</span>
+            <span className="flex items-center gap-2"><GitBranch size={13} className="text-copper" /> Repeated mention growth</span>
           </div>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
+          <div className="rounded-lg border border-white/10 bg-white/[0.06] p-4 md:col-span-2">
+            <h3 className="font-semibold">Heat map backend</h3>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              {hotTopics.slice(0, 5).map((topic) => (
+                <div key={topic.id} className="rounded-lg bg-black/15 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold capitalize">{topic.name}</p>
+                    <span className="rounded-full bg-signal/20 px-2 py-1 text-xs text-signal">{topic.heatScore}x</span>
+                  </div>
+                  <p className="mt-2 text-xs text-white/55">{topic.mentionCount} mentions</p>
+                </div>
+              ))}
+            </div>
+          </div>
           <div className="rounded-lg border border-white/10 bg-white/[0.06] p-4">
             <h3 className="font-semibold">Detected patterns</h3>
             <div className="mt-4 space-y-3">

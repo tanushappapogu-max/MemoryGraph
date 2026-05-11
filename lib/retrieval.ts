@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { detectTopicHits, detectTopics } from "@/lib/graph";
+import { detectTopicHits } from "@/lib/graph";
 
 export async function retrieveContext(dialogue: string) {
   const people = await prisma.person.findMany({
@@ -44,7 +44,14 @@ export async function retrieveContext(dialogue: string) {
         if (!hit) return total;
         return total + hit.count * personTopic.weight * Math.max(1, Math.log2(personTopic.topic.heatScore + 1));
       }, 0);
-      return { person, score: score + topicScore };
+      const firstName = person.name.split(/\s+/)[0]?.toLowerCase();
+      const directPersonScore =
+        lower.includes(person.name.toLowerCase()) ||
+        (firstName && lower.includes(firstName)) ||
+        (person.company && person.company !== "Internal" && lower.includes(person.company.toLowerCase()))
+          ? 240
+          : 0;
+      return { person, score: score + topicScore + directPersonScore };
     })
     .sort((a, b) => b.score - a.score);
 

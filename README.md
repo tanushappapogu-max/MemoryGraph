@@ -22,8 +22,19 @@ MemoryGraph stores:
 - Topics: hardware, solution, security, ROI, pricing, Salesforce, leadership
 - Edges: explicit links between memories across calls
 - Patterns: repeated themes detected across time
+- Heat points: each mention adds weight to a topic; repeated mentions double the heat score so live answers prioritize the strongest active memory
 
 The live assistant retrieval flow returns not only "what happened before," but why today's moment connects to previous calls.
+
+## Heat Map Model
+
+Think of the backend as a heat map:
+
+1. A call mentions "hardware" and MemoryGraph places a hardware point on the graph.
+2. Another call mentions hardware again and the point grows hotter.
+3. Live dialogue mentioning hardware matches that hot point.
+4. The assistant pulls linked memories, patterns, commitments, and prior call context through that point.
+5. The suggested answer is computed from the active hot memory, not from the current call alone.
 
 ## Setup
 

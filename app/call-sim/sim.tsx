@@ -11,6 +11,7 @@ type Context = {
   commitments: { task: string; status: string; dueDate: string | null }[];
   patterns: { label: string; description: string; evidence: string; confidence: number; topic: string | null }[];
   graphLinks: { relation: string; rationale: string; strength: number; from: string; to: string; toPerson: string; toCall: string }[];
+  heatMap: { name: string; category: string; mentionCount: number; heatScore: number; lastMentionedAt: string | null }[];
   suggestedResponse: string;
 };
 
@@ -81,6 +82,11 @@ export function CallSim() {
               title="Cross-call graph links"
               items={context.graphLinks.map((item) => `${item.rationale} Strength ${item.strength}/5.`)}
               empty="No graph links found yet."
+            />
+            <Block
+              title="Active heat points"
+              items={context.heatMap.map((item) => `${item.name}: ${item.mentionCount} mentions, heat ${item.heatScore}x`)}
+              empty="No hot topic matched the current dialogue."
             />
             <div className="rounded-lg border border-signal/30 bg-signal/10 p-4">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-signal">Suggested response</p>
