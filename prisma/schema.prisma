@@ -1,0 +1,148 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Call {
+  id         String       @id @default(cuid())
+  title      String
+  date       DateTime
+  callType   String       @default("work")
+  transcript String
+  summary    String
+  createdAt  DateTime     @default(now())
+  memories   Memory[]
+  commitments Commitment[]
+  questions  Question[]
+  objections Objection[]
+  topics     CallTopic[]
+  edges      MemoryEdge[]
+}
+
+model Person {
+  id          String       @id @default(cuid())
+  name        String
+  company     String?
+  role        String?
+  notes       String?
+  createdAt   DateTime     @default(now())
+  memories    Memory[]
+  commitments Commitment[]
+  questions   Question[]
+  objections  Objection[]
+  topics      PersonTopic[]
+  patterns    Pattern[]
+
+  @@unique([name, company])
+}
+
+model Memory {
+  id              String   @id @default(cuid())
+  personId        String
+  callId          String
+  type            String
+  content         String
+  importanceScore Int      @default(3)
+  createdAt       DateTime @default(now())
+  person          Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  call            Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+  outgoingEdges   MemoryEdge[] @relation("fromMemory")
+  incomingEdges   MemoryEdge[] @relation("toMemory")
+}
+
+model Commitment {
+  id        String   @id @default(cuid())
+  personId  String
+  callId    String
+  task      String
+  dueDate   DateTime?
+  status    String   @default("open")
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  call      Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+}
+
+model Question {
+  id       String @id @default(cuid())
+  personId String
+  callId   String
+  question String
+  topic    String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+  call     Call   @relation(fields: [callId], references: [id], onDelete: Cascade)
+}
+
+model Objection {
+  id        String  @id @default(cuid())
+  personId  String
+  callId    String
+  objection String
+  resolved  Boolean @default(false)
+  person    Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  call      Call    @relation(fields: [callId], references: [id], onDelete: Cascade)
+}
+
+model Topic {
+  id              String        @id @default(cuid())
+  name            String        @unique
+  category        String        @default("workstream")
+  mentionCount    Int           @default(1)
+  heatScore       Int           @default(1)
+  lastMentionedAt DateTime?
+  createdAt       DateTime      @default(now())
+  calls           CallTopic[]
+  people          PersonTopic[]
+  patterns        Pattern[]
+}
+
+model CallTopic {
+  id      String @id @default(cuid())
+  callId  String
+  topicId String
+  weight  Int    @default(1)
+  call    Call   @relation(fields: [callId], references: [id], onDelete: Cascade)
+  topic   Topic  @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, topicId])
+}
+
+model PersonTopic {
+  id       String @id @default(cuid())
+  personId String
+  topicId  String
+  weight   Int    @default(1)
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+  topic    Topic  @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([personId, topicId])
+}
+
+model MemoryEdge {
+  id           String  @id @default(cuid())
+  fromMemoryId String
+  toMemoryId   String
+  callId       String?
+  relation     String
+  rationale    String
+  strength     Int     @default(1)
+  createdAt    DateTime @default(now())
+  fromMemory   Memory  @relation("fromMemory", fields: [fromMemoryId], references: [id], onDelete: Cascade)
+  toMemory     Memory  @relation("toMemory", fields: [toMemoryId], references: [id], onDelete: Cascade)
+  call         Call?   @relation(fields: [callId], references: [id], onDelete: SetNull)
+}
+
+model Pattern {
+  id          String   @id @default(cuid())
+  personId    String?
+  topicId     String?
+  label       String
+  description String
+  evidence    String
+  confidence  Int      @default(3)
+  createdAt   DateTime @default(now())
+  person      Person?  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  topic       Topic?   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+}
