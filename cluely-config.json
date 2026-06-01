@@ -1,0 +1,124 @@
+{
+  "$schema": "https://cluely.com/schemas/custom-action.json",
+  "name": "MemoryGraph",
+  "version": "1.0.0",
+  "description": "Local AI memory graph that auto-captures context and enriches every Cluely response with persistent knowledge",
+  "author": "Tanush Appapogu",
+  "icon": "brain",
+
+  "daemon": {
+    "url": "http://127.0.0.1:3033",
+    "ws": "ws://127.0.0.1:3033",
+    "healthCheck": "/api/health"
+  },
+
+  "systemPromptInjection": {
+    "enabled": true,
+    "endpoint": "/api/v1/cluely/system-prompt",
+    "method": "POST",
+    "description": "Injects a <memorygraph> block into every LLM call with relevant memories, patterns, and suggested approach",
+    "body": {
+      "dialogue": "{{currentDialogue}}",
+      "maxTokenBudget": 1200
+    }
+  },
+
+  "liveInsight": {
+    "enabled": true,
+    "endpoint": "/api/v1/cluely/insight",
+    "method": "POST",
+    "description": "Real-time overlay insight during calls and interviews",
+    "body": {
+      "dialogue": "{{currentDialogue}}"
+    },
+    "display": {
+      "position": "side-panel",
+      "refreshOnDialogueChange": true,
+      "refreshIntervalMs": 3000
+    }
+  },
+
+  "autoCapture": {
+    "enabled": true,
+    "endpoint": "/api/v1/capture/event",
+    "method": "POST",
+    "description": "Auto-captures Cluely dialogue chunks into the memory graph",
+    "triggers": ["session_end", "dialogue_chunk", "user_action"],
+    "body": {
+      "text": "{{capturedText}}",
+      "source": "cluely",
+      "sourceId": "{{sessionId}}",
+      "title": "Cluely session: {{sessionTitle}}"
+    }
+  },
+
+  "customActions": [
+    {
+      "name": "Memory Context",
+      "command": "/memory",
+      "description": "Pull relevant memories for the current conversation",
+      "endpoint": "/api/v1/cluely/action",
+      "method": "POST",
+      "body": {
+        "action": "memory_context",
+        "query": "{{selectedText || currentDialogue}}"
+      }
+    },
+    {
+      "name": "Graph Summary",
+      "command": "/graph",
+      "description": "See your full memory graph overview",
+      "endpoint": "/api/v1/cluely/action",
+      "method": "POST",
+      "body": {
+        "action": "graph_summary"
+      }
+    },
+    {
+      "name": "Person Brief",
+      "command": "/person",
+      "description": "Deep dive on a specific person in your memory",
+      "endpoint": "/api/v1/cluely/action",
+      "method": "POST",
+      "body": {
+        "action": "person_brief",
+        "query": "{{actionInput}}"
+      }
+    },
+    {
+      "name": "Topic Deep Dive",
+      "command": "/topic",
+      "description": "Explore everything you know about a topic",
+      "endpoint": "/api/v1/cluely/action",
+      "method": "POST",
+      "body": {
+        "action": "topic_deep_dive",
+        "query": "{{actionInput}}"
+      }
+    }
+  ],
+
+  "mcpServer": {
+    "command": "npx",
+    "args": ["tsx", "src/mcp/server.ts"],
+    "cwd": "{{installDir}}",
+    "description": "MCP tool server exposing 7 tools: ingest, live, context, summary, system_prompt, insight, action"
+  },
+
+  "websocket": {
+    "url": "ws://127.0.0.1:3033",
+    "messageTypes": {
+      "query": "Send { type: 'live', dialogue: '...' } to get real-time context",
+      "ingest": "Send { type: 'ingest', text: '...', source: 'cluely' } to capture content",
+      "insight": "Send { type: 'cluely_insight', dialogue: '...' } for overlay insight",
+      "systemPrompt": "Send { type: 'cluely_system_prompt', dialogue: '...' } for LLM injection",
+      "action": "Send { type: 'cluely_action', action: '...', query: '...' } for Custom Action"
+    }
+  },
+
+  "setup": {
+    "install": "cd {{installDir}} && npm install && npx prisma db push",
+    "start": "cd {{installDir}} && npm run daemon",
+    "test": "curl http://127.0.0.1:3033/api/health"
+  }
+}

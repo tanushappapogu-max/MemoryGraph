@@ -21,6 +21,22 @@ model Call {
   objections Objection[]
   topics     CallTopic[]
   edges      MemoryEdge[]
+  captureEvents CaptureEvent[]
+}
+
+model CaptureEvent {
+  id             String   @id @default(cuid())
+  source         String
+  sourceId       String?
+  title          String?
+  content        String
+  contentHash    String   @unique
+  metadata       String?
+  ingestedCallId String?
+  createdAt      DateTime @default(now())
+  ingestedCall   Call?    @relation(fields: [ingestedCallId], references: [id], onDelete: SetNull)
+
+  @@index([source, createdAt])
 }
 
 model Person {
@@ -52,6 +68,16 @@ model Memory {
   call            Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
   outgoingEdges   MemoryEdge[] @relation("fromMemory")
   incomingEdges   MemoryEdge[] @relation("toMemory")
+  embedding       Embedding?
+}
+
+model Embedding {
+  id        String   @id @default(cuid())
+  memoryId  String   @unique
+  vector    String   // JSON-serialized float array
+  model     String   @default("text-embedding-3-small")
+  createdAt DateTime @default(now())
+  memory    Memory   @relation(fields: [memoryId], references: [id], onDelete: Cascade)
 }
 
 model Commitment {
