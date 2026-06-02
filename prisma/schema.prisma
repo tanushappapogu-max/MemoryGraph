@@ -39,6 +39,24 @@ model CaptureEvent {
   @@index([source, createdAt])
 }
 
+model PreparedAnswer {
+  id                 String   @id @default(cuid())
+  question           String
+  normalizedQuestion String   @unique
+  answer             String
+  topic              String   @default("interview")
+  source             String   @default("generated")
+  confidence         Int      @default(70)
+  evidence           String?
+  usageCount         Int      @default(0)
+  lastMatchedAt      DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([topic, confidence])
+  @@index([lastMatchedAt])
+}
+
 model Person {
   id          String       @id @default(cuid())
   name        String

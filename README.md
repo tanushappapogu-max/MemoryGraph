@@ -1,234 +1,202 @@
 # MemoryGraph
 
-Local-first prototype for an expanding neural memory network behind AI call assistants. The goal is not to be a notes website. It is a persistent graph that connects one Zoom call to the next so a live assistant can answer from accumulated context.
+Local AI memory engine that turns every conversation into a persistent knowledge graph. Built as a drop-in intelligence layer for [Cluely](https://cluely.com) and any AI overlay.
 
-Example: Monday you discuss a hardware blocker with your boss. Tuesday you explain the solution path. Wednesday your boss's boss asks whether the roadmap is at risk. MemoryGraph should connect those calls and surface the answer: cloud GPU capacity keeps high-impact work moving, but leadership approval is needed this week.
+Every interaction gets captured, entities and facts get extracted, cross-memory edges get built, and a hybrid retrieval engine serves context back in real time. The system gets smarter with every conversation.
 
-## Stack
-
-- Next.js + TypeScript
-- Prisma ORM
-- SQLite local database
-- OpenAI structured extraction, with mock fallback when `OPENAI_API_KEY` is missing
-- Tailwind CSS
-- Optional native neural runtime reference through Darknet at `external/darknet`
-
-## Core Idea
-
-MemoryGraph stores:
-
-- People: boss, boss's boss, customers, teammates
-- Calls: dated Zoom-like transcripts with call type
-- Memory nodes: durable facts, preferences, risks, decisions, commitments
-- Topics: hardware, solution, security, ROI, pricing, Salesforce, leadership
-- Edges: explicit links between memories across calls
-- Patterns: repeated themes detected across time
-- Heat points: each mention adds weight to a topic; repeated mentions double the heat score so live answers prioritize the strongest active memory
-
-The live assistant retrieval flow returns not only "what happened before," but why today's moment connects to previous calls.
-
-## Heat Map Model
-
-Think of the backend as a heat map:
-
-1. A call mentions "hardware" and MemoryGraph places a hardware point on the graph.
-2. Another call mentions hardware again and the point grows hotter.
-3. Live dialogue mentioning hardware matches that hot point.
-4. The assistant pulls linked memories, patterns, commitments, and prior call context through that point.
-5. The suggested answer is computed from the active hot memory, not from the current call alone.
-
-## Setup
+## Quick Start
 
 ```bash
+git clone https://github.com/yourusername/MemoryGraph.git
+cd MemoryGraph
 npm install
-git submodule update --init --recursive
-cp .env.example .env
-npm run prisma:generate
-npm run prisma:push
-npm run seed
+npm run setup
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Opens the graph visualization dashboard at `http://localhost:3000` with the daemon running on `:3033`.
 
-If port `3000` is busy, Next.js will print the active local port, usually `3001`.
+## How It Works
 
-## Use It From Another App
-
-MemoryGraph exposes a local API so a Zoom sidecar, Cluely-style assistant, Electron app, Chrome extension, or internal dashboard can plug in without using the UI.
-
-For the headless daemon:
-
-```bash
-npm run daemon
+```
+Input (call transcript, clipboard, screen, file)
+  │
+  ▼
+Ingestion Pipeline ─── LLM extraction ─── deduplication (SHA-256)
+  │
+  ▼
+Knowledge Graph (SQLite)
+  ├── People + roles + companies
+  ├── Memories (typed, importance-scored)
+  ├── Cross-memory edges (strength-weighted)
+  ├── Topic heat maps (mention count + exponential heat)
+  ├── Behavioral patterns (confidence-scored)
+  ├── Commitments, questions, objections
+  └── Vector embeddings (optional)
+  │
+  ▼
+Hybrid Retrieval Engine (7 signals fused)
+  ├── BM25 text relevance
+  ├── Vector cosine similarity (optional)
+  ├── Keyword/topic matching
+  ├── Fuzzy n-gram matching
+  ├── Graph edge walk
+  ├── Importance weighting
+  └── Temporal decay (30-day half-life)
+  │
+  ▼
+Serving Layer
+  ├── System prompt injection (<memorygraph> block)
+  ├── Live overlay insight (headline + evidence + heat)
+  ├── OpenAI-compatible proxy (zero-code integration)
+  ├── MCP tool server (8 tools)
+  ├── REST API (18 endpoints)
+  ├── WebSocket (real-time bidirectional)
+  └── TypeScript SDK
 ```
 
-By default it runs on [http://127.0.0.1:3033](http://127.0.0.1:3033), watches clipboard changes, and exposes REST plus WebSocket. You can add watched folders:
+## Integration
+
+### Zero-Code: OpenAI Proxy
+
+Intercepts LLM calls, injects memory context, forwards to OpenAI. Works with any app that lets you set a custom API base URL.
 
 ```bash
-npm run memorygraph -- start --watch ./notes --watch ./transcripts
+npm run daemon     # Memory engine on :3033
+npm run proxy      # OpenAI proxy on :4000
+# Set your app's base URL to http://127.0.0.1:4000/v1
 ```
 
-Health check:
+### 3 Lines of Code: System Prompt Injection
 
-```bash
-curl http://127.0.0.1:3033/api/health
+```typescript
+import { withMemory } from "./integration/inject-memory";
+
+// Wrap your messages with memory context:
+const messages = await withMemory(userMessage, [
+  { role: "user", content: userMessage }
+]);
 ```
 
-Ingest a finished call transcript:
+### MCP Server
 
-```bash
-curl -X POST http://127.0.0.1:3033/api/v1/ingest \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Boss call: hardware blocker",
-    "callType": "internal_status",
-    "transcript": "Maya asked about the new hardware delay and how we should explain the cloud GPU workaround to leadership."
-  }'
+```json
+{
+  "mcpServers": {
+    "memorygraph": {
+      "command": "npx",
+      "args": ["tsx", "src/mcp/server.ts"],
+      "cwd": "/path/to/MemoryGraph"
+    }
+  }
+}
 ```
 
-Capture live context from Cluely, clipboard, screen OCR, or a browser extension:
+8 tools: `memorygraph_ingest`, `memorygraph_live`, `memorygraph_context`, `memorygraph_summary`, `memorygraph_system_prompt`, `memorygraph_insight`, `memorygraph_action`, `memorygraph_hybrid_search`
 
-```bash
-curl -X POST http://127.0.0.1:3033/api/v1/capture/event \
-  -H "Content-Type: application/json" \
-  -d '{
-    "source": "cluely",
-    "sourceId": "session-123",
-    "text": "The prospect asked how MemoryGraph remembers prior objections."
-  }'
-```
+### SDK
 
-Ask for live memory while a call is happening:
-
-```bash
-curl -X POST http://127.0.0.1:3033/api/v1/live \
-  -H "Content-Type: application/json" \
-  -d '{ "dialogue": "Alex asked if the new hardware delay affects the roadmap." }'
-```
-
-The live response returns:
-
-- `answer`: what the assistant should suggest saying
-- `confidence`: how strong the graph match is
-- `matchedPerson`: person profile matched from the current dialogue
-- `heatPoints`: hot graph points triggered by the dialogue
-- `evidence`: memories, questions, and commitments used
-- `graphLinks`: why this call connects to prior calls
-
-## TypeScript Client
-
-Use the local SDK from [sdk/memorygraph.ts](./sdk/memorygraph.ts):
-
-```ts
+```typescript
 import { createMemoryGraphClient } from "./sdk/memorygraph";
+const mg = createMemoryGraphClient();
 
-const memorygraph = createMemoryGraphClient({
-  baseUrl: "http://127.0.0.1:3033",
-});
-
-const live = await memorygraph.live({
-  dialogue: "Alex asked if the new hardware delay affects the roadmap.",
-});
-
-console.log(live.answer);
-console.log(live.heatPoints);
+await mg.ingest({ text: "Sarah asked about SOC2", source: "cluely" });
+const insight = await mg.cluelyInsight("What about data residency?");
+const { prompt } = await mg.cluelySystemPrompt("pricing concerns");
 ```
 
-## Browser Widget
+### WebSocket
 
-Drop this into any local web app:
-
-```html
-<script src="http://127.0.0.1:3033/memorygraph-widget.js"></script>
-<script>
-  const memorygraph = window.MemoryGraphWidget.create({
-    baseUrl: "http://127.0.0.1:3033"
-  });
-
-  memorygraph.update("Alex asked if the new hardware delay affects the roadmap.");
-</script>
+```typescript
+const ws = new WebSocket("ws://127.0.0.1:3033");
+ws.send(JSON.stringify({ type: "live", dialogue: "What about security?" }));
+ws.send(JSON.stringify({ type: "ingest", text: "...", source: "cluely" }));
 ```
 
-In a real Zoom/Cluely-style integration, your transcript stream calls `memorygraph.update(partialTranscript)` every few seconds.
+See `integration/` for full examples, curl scripts, and MCP config.
 
-## Cluely / MCP Integration
+## API Endpoints
 
-This repo is now designed to run as a direct local integration layer for Cluely-like assistants, not only as a web demo. See [docs/cluely-integration.md](./docs/cluely-integration.md).
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/health` | GET | Health + retrieval engine status |
+| `/api/v1/ingest` | POST | Ingest text with extraction |
+| `/api/v1/live` | POST | Live memory-backed answer |
+| `/api/v1/hybrid-search` | POST | Hybrid search with signal breakdown |
+| `/api/v1/graph` | GET | Graph summary |
+| `/api/v1/cluely/insight` | POST | Overlay insight |
+| `/api/v1/cluely/system-prompt` | POST | System prompt injection |
+| `/api/v1/cluely/action` | POST | Custom Action |
+| `/api/v1/export` | GET | Export graph JSON |
+| `/api/v1/import` | POST | Import graph JSON |
+| `/api/v1/consolidation` | GET | Memory analysis |
+| `/api/v1/embed` | POST | Generate embeddings |
 
-Run the MCP server:
+Full list: 18 endpoints. See `integration/curl-examples.sh`.
+
+## CLI
 
 ```bash
-npm run mcp
+npm run memorygraph -- query "What does Sarah care about?"
+npm run memorygraph -- ingest --text "Meeting notes..." --source manual
+npm run memorygraph -- insight "Tell me about security"
+npm run memorygraph -- system-prompt "pricing concerns"
+npm run memorygraph -- action person_brief "Sarah Chen"
+npm run memorygraph -- export --file backup.json
+npm run memorygraph -- health
 ```
 
-Use the Cluely adapter from [sdk/cluely-adapter.ts](./sdk/cluely-adapter.ts) when an overlay or custom action can call JavaScript hooks.
+## Project Structure
 
-## Prove It Works
-
-With the dev server running:
-
-```bash
-npm run smoke:api
+```
+src/
+  core/                    # Engine
+    hybrid-retrieval.ts    # 7-signal retrieval orchestrator
+    tfidf.ts               # BM25 inverted index
+    scoring.ts             # Temporal decay, fuzzy match, score fusion
+    embeddings.ts          # Vector storage + cosine search
+    graph.ts               # Neural graph (topics, edges, patterns)
+    ingest.ts              # Universal ingestion pipeline
+    extraction.ts          # LLM entity extraction
+    retrieval.ts           # Context retrieval
+    live-answer.ts         # Live answer + relevance gating
+    consolidation.ts       # Memory grouping + pruning
+    export.ts              # Graph export/import
+  daemon/
+    server.ts              # HTTP + WebSocket server (18 endpoints)
+    capture.ts             # Clipboard, file, OCR watchers
+  cluely/
+    adapter.ts             # Overlay insight, system prompt, actions
+    sync.ts                # Auto-sync with Cluely data
+  proxy/
+    openai-proxy.ts        # OpenAI-compatible proxy
+  mcp/
+    server.ts              # MCP tool server (8 tools)
+  cli.ts                   # CLI
+sdk/
+  memorygraph.ts           # TypeScript client SDK
+integration/
+  inject-memory.ts         # Drop-in withMemory() function
+  mcp-config.json          # MCP server config
+  curl-examples.sh         # Every API endpoint
+  README.md                # Integration guide
+overlay/
+  browser-overlay.html     # Cluely-style browser overlay
+  main.js                  # Electron overlay (always-on-top)
 ```
 
-Expected result:
+## Environment
 
-- health returns local SQLite counts
-- live endpoint matches `Alex Rivera`
-- active heat includes `hardware`
-- answer references the hardware risk and prior solution path.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENAI_API_KEY` | — | Enables LLM extraction + vector embeddings |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | Extraction model |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model |
+| `MEMORYGRAPH_PORT` | `3033` | Daemon port |
+| `PROXY_PORT` | `4000` | OpenAI proxy port |
 
-## Native Neural Runtime
+Works fully offline without an API key (mock extraction + 6-signal retrieval).
 
-This repo vendors [pjreddie/darknet](https://github.com/pjreddie/darknet.git) as a submodule under `external/darknet`.
+## License
 
-Build it in CPU mode:
-
-```bash
-npm run darknet:build
-```
-
-Clean native build artifacts:
-
-```bash
-npm run darknet:clean
-```
-
-Darknet is not the call-memory graph by itself. It is a native C neural-net runtime we can use as a future local inference backend. The actual call-memory engine is graph + heat + activation + evidence retrieval. See [docs/neural-engine.md](./docs/neural-engine.md).
-
-## OpenAI
-
-The app works without an API key by using deterministic mock extraction. To use OpenAI extraction, set:
-
-```bash
-OPENAI_API_KEY="sk-..."
-OPENAI_MODEL="gpt-4.1-mini"
-```
-
-## Demo Script
-
-1. Dashboard shows the neural graph with memory nodes, graph edges, and detected patterns.
-2. Internal call 1: Maya, your boss, asks about a new hardware blocker.
-3. Internal call 2: Maya asks how to explain the solution path upward.
-4. Leadership call: Alex, your boss's boss, asks whether the hardware delay affects the roadmap.
-5. Go to `/call-sim`.
-6. Type: `Alex asked if the new hardware delay affects the roadmap.`
-7. The Context Card connects hardware, solution path, executive framing, and the approval decision.
-
-The original sales demo is also seeded:
-
-- Sarah from Acme Robotics asks about security and Salesforce integration.
-- Sarah later objects to pricing and asks for ROI proof.
-- Typing `Sarah brought up pricing again.` surfaces pricing sensitivity, ROI proof, Salesforce, security, and the promised ROI calculator.
-
-## Pages
-
-- `/` neural command center with saved calls, people, detected patterns, edges, and the visual memory graph
-- `/upload` transcript ingestion
-- `/people/[id]` person memory profile with dated timeline
-- `/call-sim` live dialogue simulation and retrieval context card
-
-## Notes
-
-This is intentionally local-first infrastructure for live AI memory, not a production CRM. The current prototype uses lightweight graph construction and lexical matching so the behavior is inspectable. The next natural step is embedding-based retrieval plus a Zoom/Cluely-sidecar capture layer.
+MIT

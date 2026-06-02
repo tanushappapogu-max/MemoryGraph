@@ -1,0 +1,13 @@
+{
+  "name": "memorygraph-overlay",
+  "version": "1.0.0",
+  "description": "Cluely-style floating overlay — captures audio, transcribes in real-time, shows memory-backed AI suggestions",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "dependencies": {
+    "electron": "^33.0.0"
+  }
+}

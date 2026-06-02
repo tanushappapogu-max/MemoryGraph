@@ -1,52 +1,24 @@
-import { InfiniteMemoryCanvas } from "@/components/InfiniteMemoryCanvas";
-import { getNeuralGraph } from "@/lib/graph";
-import { prisma } from "@/lib/db";
+import GraphVisualization from "@/components/GraphVisualization";
+import CallCapture from "@/components/CallCapture";
+import LivePanel from "@/components/LivePanel";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
-  const [graph, counts] = await Promise.all([
-    getNeuralGraph(),
-    Promise.all([prisma.call.count(), prisma.person.count(), prisma.memory.count(), prisma.memoryEdge.count()]),
-  ]);
-
+export default function Home() {
   return (
-    <InfiniteMemoryCanvas
-      topics={graph.topics.map((topic) => ({
-        id: topic.id,
-        name: topic.name,
-        category: topic.category,
-        mentionCount: topic.mentionCount,
-        heatScore: topic.heatScore,
-      }))}
-      memories={graph.memories.map((memory) => ({
-        id: memory.id,
-        type: memory.type,
-        content: memory.content,
-        importanceScore: memory.importanceScore,
-        person: {
-          name: memory.person.name,
-          company: memory.person.company,
-        },
-        call: {
-          title: memory.call.title,
-          date: memory.call.date.toISOString(),
-        },
-      }))}
-      edges={graph.edges.map((edge) => ({
-        id: edge.id,
-        relation: edge.relation,
-        rationale: edge.rationale,
-        strength: edge.strength,
-        fromMemoryId: edge.fromMemoryId,
-        toMemoryId: edge.toMemoryId,
-      }))}
-      patterns={graph.patterns.map((pattern) => ({
-        id: pattern.id,
-        label: pattern.label,
-        confidence: pattern.confidence,
-      }))}
-      counts={{ calls: counts[0], people: counts[1], memories: counts[2], edges: counts[3] }}
-    />
+    <div className="flex h-screen bg-zinc-950 text-white">
+      <div className="flex-1 relative">
+        <GraphVisualization />
+      </div>
+
+      <div className="flex w-[560px] flex-shrink-0 flex-col border-l border-zinc-800/50 bg-zinc-950/90 backdrop-blur-xl">
+        <div className="flex min-h-0 flex-[1.45] border-b border-zinc-800/50">
+          <CallCapture />
+        </div>
+        <div className="min-h-0 flex-1">
+          <LivePanel />
+        </div>
+      </div>
+    </div>
   );
 }

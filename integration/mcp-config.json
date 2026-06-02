@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "memorygraph": {
+      "command": "npx",
+      "args": ["tsx", "src/mcp/server.ts"],
+      "cwd": "${MEMORYGRAPH_DIR}",
+      "env": {
+        "DATABASE_URL": "file:./prisma/dev.db"
+      }
+    }
+  }
+}

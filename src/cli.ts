@@ -101,6 +101,74 @@ async function main() {
     return;
   }
 
+  // ── Graph maintenance commands ────────────────────────────────────────
+
+  if (command === "consolidation" || command === "consolidate") {
+    console.log(JSON.stringify(await request("/api/v1/consolidation", flags), null, 2));
+    return;
+  }
+
+  if (command === "prune") {
+    const staleDays = Number(flags.days || 90);
+    const maxImportance = Number(flags["max-importance"] || 2);
+    console.log(
+      JSON.stringify(
+        await request("/api/v1/prune", flags, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ staleDays, maxImportance }),
+        }),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  if (command === "export") {
+    const snapshot = await request("/api/v1/export", flags);
+    if (flags.file) {
+      const { writeFileSync } = await import("fs");
+      writeFileSync(stringFlag(flags.file)!, JSON.stringify(snapshot, null, 2));
+      console.log(`Exported to ${stringFlag(flags.file)} (${snapshot.counts.memories} memories)`);
+    } else {
+      console.log(JSON.stringify(snapshot, null, 2));
+    }
+    return;
+  }
+
+  if (command === "import") {
+    const filePath = stringFlag(flags.file) || args[1];
+    if (!filePath) {
+      console.error("Usage: memorygraph import --file snapshot.json");
+      process.exit(1);
+    }
+    const snapshot = JSON.parse(readFileSync(filePath, "utf8"));
+    console.log(
+      JSON.stringify(
+        await request("/api/v1/import", flags, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(snapshot),
+        }),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  if (command === "embed") {
+    console.log(
+      JSON.stringify(
+        await request("/api/v1/embed", flags, { method: "POST" }),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
   // ── Cluely-specific commands ──────────────────────────────────────────
 
   if (command === "insight") {
@@ -153,6 +221,51 @@ async function main() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action, query }),
+        }),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  // ── Interview memory commands ────────────────────────────────────────
+
+  if (command === "prepare" || command === "prep") {
+    const context = args
+      .slice(1)
+      .filter((arg) => !arg.startsWith("--"))
+      .join(" ") || String(flags.context || flags.query || "");
+    console.log(
+      JSON.stringify(
+        await request("/api/v1/interview/prepare", flags, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ context, refresh: flags.refresh !== "false", limit: Number(flags.limit || 8) }),
+        }),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  if (command === "answer" || command === "interview") {
+    const question = args
+      .slice(1)
+      .filter((arg) => !arg.startsWith("--"))
+      .join(" ") || String(flags.question || flags.text || "");
+    console.log(
+      JSON.stringify(
+        await request("/api/v1/interview/answer", flags, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question,
+            transcript: flags.transcript,
+            sessionId: flags.session || "cli-interview",
+            autoCapture: flags.capture === "true",
+          }),
         }),
         null,
         2,
@@ -239,20 +352,38 @@ function printHelp() {
    memorygraph action memory_context "ROI calculator"
      Execute a Cluely Custom Action against the graph.
 
+ INTERVIEW COPILOT
+   memorygraph prepare
+     Rebuild the prepared-answer cache from your memories and known questions.
+
+   memorygraph prepare "Cluely technical interview about architecture"
+     Show likely next questions and already-prepared answers for that context.
+
+   memorygraph answer "How does MemoryGraph integrate with Cluely?"
+     Return the cached interview-ready answer instantly, or generate/store one.
+
+ GRAPH MAINTENANCE
+   memorygraph consolidation        — Analyze memory groups, find duplicates
+   memorygraph prune [--days 90]    — Delete stale low-importance memories
+   memorygraph export --file backup.json  — Export full graph to JSON
+   memorygraph import --file backup.json  — Import graph from JSON
+   memorygraph embed                — Generate embeddings for all memories
+
  STATUS
-   memorygraph health      — Daemon health + graph counts
+   memorygraph health      — Daemon health + retrieval engine status
    memorygraph graph       — Hot topics + patterns
    memorygraph events      — Recent capture events
 
  MCP SERVER
-   npm run mcp             — Start as MCP tool server (stdio)
+   npm run mcp             — Start as MCP tool server (stdio, 10 tools)
 
  ENVIRONMENT
    MEMORYGRAPH_PORT=3033
    MEMORYGRAPH_HOST=127.0.0.1
    MEMORYGRAPH_URL=http://127.0.0.1:3033
-   OPENAI_API_KEY=...      — Enable LLM extraction (optional, mock fallback works)
+   OPENAI_API_KEY=...      — Enable LLM extraction + vector embeddings
    OPENAI_MODEL=gpt-4.1-mini
+   EMBEDDING_MODEL=text-embedding-3-small
 `);
 }
 

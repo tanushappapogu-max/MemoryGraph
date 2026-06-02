@@ -1,5 +1,6 @@
 import { prisma } from "./db";
 import { detectTopicHits } from "./graph";
+import { hybridSearch } from "./hybrid-retrieval";
 
 export async function retrieveContext(dialogue: string, options: { maxMemories?: number } = {}) {
   const people = await prisma.person.findMany({
@@ -58,7 +59,47 @@ export async function retrieveContext(dialogue: string, options: { maxMemories?:
   const match = ranked[0]?.score ? ranked[0].person : people[0];
   if (!match) return null;
 
-  const topMemories = match.memories.slice(0, options.maxMemories ?? 6);
+  // ── Hybrid-ranked memories ────────────────────────────────────────────
+  // Instead of naively slicing by importance, run the hybrid retrieval
+  // engine (TF-IDF + vector + fuzzy + temporal decay + graph walk) scoped
+  // to the matched person.  Falls back to the old slice when hybrid returns
+  // nothing (e.g. very first query before the TF-IDF index is warm).
+  const maxMem = options.maxMemories ?? 6;
+  let topMemories: { type: string; content: string; callTitle: string; callDate: Date; hybridScore?: number; hybridExplanation?: string }[];
+
+  try {
+    const hybridResults = await hybridSearch(dialogue, {
+      topK: maxMem,
+      personFilter: match.id,
+    });
+    if (hybridResults.length > 0) {
+      topMemories = hybridResults.map((r) => ({
+        type: r.type,
+        content: r.content,
+        callTitle: r.callTitle,
+        callDate: r.callDate,
+        hybridScore: r.finalScore,
+        hybridExplanation: r.explanation,
+      }));
+    } else {
+      // Hybrid returned nothing — fall back to importance-ordered slice
+      topMemories = match.memories.slice(0, maxMem).map((m) => ({
+        type: m.type,
+        content: m.content,
+        callTitle: m.call.title,
+        callDate: m.call.date,
+      }));
+    }
+  } catch {
+    // Hybrid search error — graceful fallback
+    topMemories = match.memories.slice(0, maxMem).map((m) => ({
+      type: m.type,
+      content: m.content,
+      callTitle: m.call.title,
+      callDate: m.call.date,
+    }));
+  }
+
   const graphLinks = await retrieveGraphLinks(match.id, mentionedTopics);
   const suggestedResponse = buildSuggestedResponse(
     match.name,
@@ -78,8 +119,10 @@ export async function retrieveContext(dialogue: string, options: { maxMemories?:
     memories: topMemories.map((memory) => ({
       type: memory.type,
       content: memory.content,
-      callTitle: memory.call.title,
-      callDate: memory.call.date,
+      callTitle: memory.callTitle,
+      callDate: memory.callDate,
+      ...(memory.hybridScore != null ? { hybridScore: memory.hybridScore } : {}),
+      ...(memory.hybridExplanation ? { hybridExplanation: memory.hybridExplanation } : {}),
     })),
     questions: match.questions.slice(0, 4).map((question) => ({
       question: question.question,
@@ -174,37 +217,62 @@ function buildSuggestedResponse(
   hasCommitments: boolean,
   graphLinks: Awaited<ReturnType<typeof retrieveGraphLinks>>,
 ) {
-  const themes = Array.from(new Set(memories.map((memory) => memory.type))).slice(0, 4).join(", ");
-  const directEvidence = uniqueStrings(
-    memories
-    .filter((memory) =>
-      [
-        "hardware",
-        "solution",
-        "executive_framing",
-        "executive",
-        "roi",
-        "pricing",
-        "cluely_plugin",
-        "memory_graph",
-        "internship",
-        "coding",
-      ].includes(memory.type),
-    )
-    .map((memory) => memory.content)
-  ).slice(0, 2);
-  const linkedEvidence = uniqueStrings(
-    graphLinks
-    .flatMap((link) => [link.from, link.to])
-    .filter((content) => content && !directEvidence.includes(content)),
-  ).slice(0, 2);
-  const evidence = [...directEvidence, ...linkedEvidence].slice(0, 2).map(shorten).join(" ");
-  const connection = graphLinks[0] ? ` This is linked to prior context because ${graphLinks[0].rationale.toLowerCase()}` : "";
-  return `Suggested answer for ${name}: ${
-    evidence || `Tie the answer back to ${themes || "their prior context and goals"}.`
-  }${connection} ${
-    hasCommitments ? "Close by referencing the promised follow-up before introducing anything new." : "Close with the decision, proof, or next step needed right now."
-  }`;
+  const themes = Array.from(new Set(memories.map((memory) => memory.type))).slice(0, 4);
+
+  // Extract key facts (not raw dumps)
+  const keyFacts = memories
+    .map((m) => extractKeyFact(m.content))
+    .filter((f) => f.length > 10)
+    .slice(0, 3);
+
+  // Build a concise, actionable suggestion
+  const parts: string[] = [];
+
+  if (keyFacts.length) {
+    parts.push(`Key context: ${keyFacts.join(". ")}.`);
+  } else if (themes.length) {
+    parts.push(`Prior context covers: ${themes.join(", ")}.`);
+  }
+
+  if (graphLinks.length) {
+    parts.push(`Connected to ${graphLinks.length} related memories.`);
+  }
+
+  if (hasCommitments) {
+    parts.push("Reference your open commitment before introducing new topics.");
+  } else {
+    parts.push("Close with the specific decision or proof they need.");
+  }
+
+  return parts.join(" ");
+}
+
+/** Extract the first meaningful sentence from a memory, stripping "Evidence:" dumps and templates */
+function extractKeyFact(content: string): string {
+  let clean = content
+    // Remove "Evidence: ..." suffixes (mock extractor artifact)
+    .replace(/\s*Evidence:[\s\S]*$/i, "")
+    // Remove "PersonName has durable X context from Y." template
+    .replace(/^[A-Z][a-z]+ (?:[A-Z][a-z]+ )?has durable \w+ context from \w+\.\s*/i, "")
+    // Remove "PersonName is building/wants/cares..." prefix
+    .replace(/^[A-Z][a-z]+ (?:[A-Z][a-z]+ )?(is building|wants|cares about|needs|has|is price-sensitive) /i, "")
+    // Remove "PersonName's goal is to..." prefix
+    .replace(/^[A-Z][a-z]+ (?:[A-Z][a-z]+ )?'s goal is to /i, "")
+    .trim();
+
+  // If after stripping the content is too short or empty, use original
+  if (clean.length < 10) {
+    clean = content.replace(/\s*Evidence:[\s\S]*$/i, "").trim();
+  }
+
+  // Take first sentence only
+  const firstSentence = clean.split(/[.!?]\s/)[0];
+  if (firstSentence && firstSentence.length > 10) {
+    clean = firstSentence.length > 120 ? firstSentence.slice(0, 117) + "..." : firstSentence;
+  } else {
+    clean = clean.slice(0, 120);
+  }
+  return clean;
 }
 
 function uniqueStrings(values: string[]) {

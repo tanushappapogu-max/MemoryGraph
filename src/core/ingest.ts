@@ -95,6 +95,7 @@ export async function ingestContent(input: IngestPayload) {
   });
 
   await rebuildGraphSignals();
+  await refreshPreparedAnswerCache();
 
   return {
     skipped: false,
@@ -102,6 +103,16 @@ export async function ingestContent(input: IngestPayload) {
     captureEventId: captureEvent.id,
     ...result,
   };
+}
+
+async function refreshPreparedAnswerCache() {
+  try {
+    const { refreshPreparedAnswers } = await import("./interview");
+    await refreshPreparedAnswers();
+  } catch {
+    // Prepared answers are an acceleration layer. Ingestion should still
+    // succeed if the cache cannot refresh during a live call.
+  }
 }
 
 async function createCaptureEvent(input: {

@@ -13,6 +13,7 @@ import { getLiveAnswer } from "../core/live-answer";
 import { retrieveContext } from "../core/retrieval";
 import { getNeuralGraph } from "../core/graph";
 import { prisma } from "../core/db";
+import { predictLikelyQuestions } from "../core/interview";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -31,6 +32,8 @@ export type CluelyInsight = {
   heatBar: { topic: string; level: "low" | "medium" | "high" | "critical" }[];
   /** Related graph connections */
   connections: { from: string; to: string; why: string }[];
+  /** Prepared answers likely to be useful next */
+  likelyNext: { question: string; answer: string; topic: string; confidence: number }[];
   /** Timestamp */
   ts: number;
 };
@@ -61,6 +64,7 @@ export type CluelyActionResponse = {
 
 export async function getCluelyInsight(dialogue: string): Promise<CluelyInsight> {
   const result = await getLiveAnswer(dialogue);
+  const likelyNext = await predictLikelyQuestions(dialogue, { limit: 5 }).catch(() => []);
 
   return {
     headline: result.matchedPerson
@@ -88,6 +92,12 @@ export async function getCluelyInsight(dialogue: string): Promise<CluelyInsight>
       from: truncate(link.from, 80),
       to: truncate(link.to, 80),
       why: link.rationale,
+    })),
+    likelyNext: likelyNext.map((item) => ({
+      question: item.question,
+      answer: item.answer,
+      topic: item.topic,
+      confidence: item.confidence,
     })),
     ts: Date.now(),
   };

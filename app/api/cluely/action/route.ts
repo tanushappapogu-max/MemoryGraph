@@ -18,7 +18,8 @@ export async function POST(request: Request) {
         400,
       );
     }
-    const { action: _, ...params } = body;
+    const params = { ...body };
+    delete params.action;
     const result = await handleCluelyAction(action, params);
     return corsResponse({ ok: true, ...result });
   } catch (error) {

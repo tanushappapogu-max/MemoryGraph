@@ -23,16 +23,17 @@ const topicAliases: Record<string, string[]> = {
 export type NeuralGraph = Awaited<ReturnType<typeof getNeuralGraph>>;
 
 export async function getNeuralGraph() {
-  const [people, calls, topics, memories, edges, patterns] = await Promise.all([
+  const [people, calls, topics, memories, edges, patterns, preparedAnswers] = await Promise.all([
     prisma.person.findMany({ include: { topics: { include: { topic: true } } } }),
     prisma.call.findMany({ include: { topics: { include: { topic: true } } }, orderBy: { date: "asc" } }),
     prisma.topic.findMany({ orderBy: [{ heatScore: "desc" }, { mentionCount: "desc" }] }),
     prisma.memory.findMany({ include: { person: true, call: true }, orderBy: { createdAt: "asc" } }),
     prisma.memoryEdge.findMany({ include: { fromMemory: true, toMemory: true }, orderBy: { strength: "desc" } }),
     prisma.pattern.findMany({ include: { person: true, topic: true }, orderBy: [{ confidence: "desc" }, { createdAt: "desc" }] }),
+    prisma.preparedAnswer.findMany({ orderBy: [{ confidence: "desc" }, { updatedAt: "desc" }], take: 80 }),
   ]);
 
-  return { people, calls, topics, memories, edges, patterns };
+  return { people, calls, topics, memories, edges, patterns, preparedAnswers };
 }
 
 export async function rebuildGraphSignals() {

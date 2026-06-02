@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>MemoryGraph Live — Cluely Clone</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+      background: #09090b;
+      color: #e4e4e7;
+      min-height: 100vh;
+      display: flex;
+    }
+
+    /* ─── Main Layout ─── */
+    .app { display: flex; width: 100%; height: 100vh; }
+
+    .call-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #18181b;
+      border-right: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .call-area h2 { color: #52525b; font-size: 18px; margin-bottom: 12px; }
+    .call-area p { color: #3f3f46; font-size: 13px; max-width: 400px; text-align: center; line-height: 1.6; }
+
+    .transcript-box {
+      width: 90%;
+      max-width: 600px;
+      margin-top: 24px;
+    }
+
+    .transcript-box textarea {
+      width: 100%;
+      height: 200px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 14px;
+      color: white;
+      font-size: 13px;
+      line-height: 1.6;
+      resize: vertical;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .transcript-box textarea:focus { border-color: rgba(34, 197, 94, 0.4); }
+    .transcript-box textarea::placeholder { color: #3f3f46; }
+
+    .transcript-actions {
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid;
+      transition: all 0.2s;
+    }
+
+    .btn-primary { background: rgba(34,197,94,0.15); border-color: rgba(34,197,94,0.3); color: #22c55e; }
+    .btn-primary:hover { background: rgba(34,197,94,0.25); }
+    .btn-secondary { background: rgba(139,92,246,0.15); border-color: rgba(139,92,246,0.3); color: #a78bfa; }
+    .btn-secondary:hover { background: rgba(139,92,246,0.25); }
+    .btn-danger { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #ef4444; }
+    .btn-danger:hover { background: rgba(239,68,68,0.25); }
+
+    /* ─── Overlay Panel (Cluely clone) ─── */
+    .overlay-panel {
+      width: 380px;
+      background: rgba(12, 12, 16, 0.98);
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .panel-header {
+      padding: 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .panel-header-left { display: flex; align-items: center; gap: 8px; }
+
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 6px rgba(34,197,94,0.5);
+    }
+
+    .status-dot.off { background: #ef4444; box-shadow: 0 0 6px rgba(239,68,68,0.5); }
+    .status-dot.thinking { background: #eab308; animation: blink 1s infinite; }
+
+    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    .panel-title { font-size: 13px; font-weight: 600; color: #a1a1aa; }
+    .confidence-badge {
+      font-size: 12px; font-weight: 700; color: #22c55e;
+      padding: 2px 8px; border-radius: 10px;
+      background: rgba(34,197,94,0.1);
+    }
+
+    .panel-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .panel-content::-webkit-scrollbar { width: 4px; }
+    .panel-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+    .section { margin-bottom: 16px; }
+    .section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #71717a; margin-bottom: 8px; }
+
+    .person-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 12px; }
+    .person-name { font-size: 15px; font-weight: 700; color: white; }
+    .person-meta { font-size: 12px; color: #a1a1aa; margin-top: 2px; }
+
+    .suggestion { background: rgba(34,197,94,0.06); border: 1px solid rgba(34,197,94,0.15); border-radius: 10px; padding: 12px; font-size: 13px; line-height: 1.5; color: #d4d4d8; }
+
+    .evidence-item { display: flex; gap: 8px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 12px; line-height: 1.4; }
+    .evidence-item:last-child { border-bottom: none; }
+    .evidence-emoji { font-size: 14px; flex-shrink: 0; }
+    .evidence-label { color: #a78bfa; font-weight: 600; font-size: 11px; }
+    .evidence-text { color: #a1a1aa; }
+
+    .heat-bar { display: flex; gap: 6px; flex-wrap: wrap; }
+    .heat-chip { font-size: 11px; padding: 3px 8px; border-radius: 6px; font-weight: 600; }
+    .heat-low { background: rgba(100,116,139,0.2); color: #94a3b8; }
+    .heat-medium { background: rgba(234,179,8,0.15); color: #fbbf24; }
+    .heat-high { background: rgba(249,115,22,0.15); color: #fb923c; }
+    .heat-critical { background: rgba(239,68,68,0.15); color: #f87171; }
+
+    .panel-footer {
+      padding: 12px 16px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      font-size: 11px;
+      color: #3f3f46;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .empty-state { text-align: center; padding: 60px 20px; color: #3f3f46; }
+    .empty-state h3 { color: #71717a; font-size: 14px; margin-bottom: 8px; }
+    .empty-state p { font-size: 12px; line-height: 1.6; }
+
+    .toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: rgba(34,197,94,0.2); border: 1px solid rgba(34,197,94,0.3);
+      border-radius: 8px; padding: 8px 16px; font-size: 12px; color: #22c55e;
+      opacity: 0; transition: opacity 0.3s; pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- Left: Simulated call area -->
+    <div class="call-area">
+      <h2>Simulated Call / Interview</h2>
+      <p>Paste or type a transcript below. This simulates what Cluely captures from a Zoom/Meet call. The overlay panel on the right will show real-time memory-backed suggestions.</p>
+
+      <div class="transcript-box">
+        <textarea id="transcript" placeholder="Paste a call transcript or type live dialogue here...
+
+Example: 'The interviewer asked: Tell me about a system you built that handles real-time data at scale. What were the key architectural decisions?'"></textarea>
+        <div class="transcript-actions">
+          <button class="btn btn-primary" id="btnQuery">Get Live Insight</button>
+          <button class="btn btn-secondary" id="btnIngest">Capture to Graph</button>
+          <button class="btn btn-danger" id="btnBoth">Capture + Query</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Cluely-style overlay panel -->
+    <div class="overlay-panel">
+      <div class="panel-header">
+        <div class="panel-header-left">
+          <div class="status-dot" id="statusDot"></div>
+          <span class="panel-title">MemoryGraph Live</span>
+        </div>
+        <span class="confidence-badge" id="confidence">--</span>
+      </div>
+
+      <div class="panel-content" id="panelContent">
+        <div class="empty-state">
+          <h3>Waiting for dialogue</h3>
+          <p>Type or paste a transcript on the left, then click "Get Live Insight" to see memory-backed context appear here in real time.</p>
+          <p style="margin-top: 12px; color: #52525b;">Make sure the daemon is running:<br><code style="color: #a78bfa;">npm run daemon</code></p>
+        </div>
+      </div>
+
+      <div class="panel-footer">
+        <span id="footerStatus">Connecting...</span>
+        <span id="footerMemories">--</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const BASE = "http://127.0.0.1:3033";
+    const transcript = document.getElementById("transcript");
+    const panelContent = document.getElementById("panelContent");
+    const statusDot = document.getElementById("statusDot");
+    const confidence = document.getElementById("confidence");
+    const footerStatus = document.getElementById("footerStatus");
+    const footerMemories = document.getElementById("footerMemories");
+    const toast = document.getElementById("toast");
+
+    // ─── Init ──────────────────────────────────────────────────────────
+    async function checkHealth() {
+      try {
+        const res = await fetch(BASE + "/api/health");
+        const data = await res.json();
+        if (data.ok) {
+          statusDot.className = "status-dot";
+          footerStatus.textContent = "Connected";
+          footerMemories.textContent = data.counts.memories + " memories";
+        }
+      } catch {
+        statusDot.className = "status-dot off";
+        footerStatus.textContent = "Daemon offline";
+      }
+    }
+
+    // ─── Query ─────────────────────────────────────────────────────────
+    async function queryInsight(text) {
+      if (!text.trim()) return;
+      statusDot.className = "status-dot thinking";
+      confidence.textContent = "...";
+
+      try {
+        const res = await fetch(BASE + "/api/v1/cluely/insight", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dialogue: text }),
+        });
+        const data = await res.json();
+        if (data.ok !== false) {
+          statusDot.className = "status-dot";
+          confidence.textContent = data.confidence + "%";
+          renderPanel(data);
+        }
+      } catch {
+        statusDot.className = "status-dot off";
+        confidence.textContent = "ERR";
+      }
+    }
+
+    // ─── Ingest ────────────────────────────────────────────────────────
+    async function ingestText(text) {
+      if (!text.trim() || text.length < 12) return;
+      try {
+        await fetch(BASE + "/api/v1/ingest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, source: "cluely", title: "Overlay live capture" }),
+        });
+        showToast("Captured to memory graph");
+        checkHealth();
+      } catch {
+        showToast("Capture failed — daemon offline");
+      }
+    }
+
+    // ─── Render ────────────────────────────────────────────────────────
+    function renderPanel(data) {
+      let html = "";
+
+      if (data.person) {
+        html += `<div class="section"><div class="person-card">
+          <div class="person-name">${esc(data.person.name)}</div>
+          <div class="person-meta">${esc(data.person.company || "")} ${data.person.role ? "— " + esc(data.person.role) : ""}</div>
+        </div></div>`;
+      }
+
+      if (data.suggestedResponse) {
+        html += `<div class="section"><div class="section-title">Suggested Response</div>
+          <div class="suggestion">${esc(data.suggestedResponse)}</div></div>`;
+      }
+
+      if (data.evidence && data.evidence.length) {
+        html += `<div class="section"><div class="section-title">Evidence (${data.evidence.length})</div>`;
+        for (const ev of data.evidence.slice(0, 6)) {
+          html += `<div class="evidence-item">
+            <span class="evidence-emoji">${ev.emoji}</span>
+            <div><div class="evidence-label">${esc(ev.label)}</div><div class="evidence-text">${esc(ev.text)}</div></div>
+          </div>`;
+        }
+        html += `</div>`;
+      }
+
+      if (data.heatBar && data.heatBar.length) {
+        html += `<div class="section"><div class="section-title">Active Topics</div><div class="heat-bar">`;
+        for (const h of data.heatBar) {
+          html += `<span class="heat-chip heat-${h.level}">${esc(h.topic)}</span>`;
+        }
+        html += `</div></div>`;
+      }
+
+      if (data.connections && data.connections.length) {
+        html += `<div class="section"><div class="section-title">Graph Links</div>`;
+        for (const c of data.connections.slice(0, 3)) {
+          html += `<div class="evidence-item"><span class="evidence-emoji">🔗</span>
+            <div class="evidence-text">${esc(c.why)}</div></div>`;
+        }
+        html += `</div>`;
+      }
+
+      panelContent.innerHTML = html;
+    }
+
+    function showToast(msg) {
+      toast.textContent = msg;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2500);
+    }
+
+    function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+
+    // ─── Events ────────────────────────────────────────────────────────
+    document.getElementById("btnQuery").onclick = () => queryInsight(transcript.value);
+    document.getElementById("btnIngest").onclick = () => ingestText(transcript.value);
+    document.getElementById("btnBoth").onclick = async () => {
+      await ingestText(transcript.value);
+      setTimeout(() => queryInsight(transcript.value), 500);
+    };
+
+    // Enter key in textarea (Ctrl+Enter to query)
+    transcript.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        queryInsight(transcript.value);
+      }
+    });
+
+    checkHealth();
+    setInterval(checkHealth, 10000);
+  </script>
+</body>
+</html>

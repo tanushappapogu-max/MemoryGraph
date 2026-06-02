@@ -6,6 +6,9 @@ import { getLiveAnswer } from "../core/live-answer";
 import { retrieveContext } from "../core/retrieval";
 import { getNeuralGraph } from "../core/graph";
 import { buildCluelySystemPrompt, handleCluelyAction, getCluelyInsight } from "../cluely/adapter";
+import { hybridSearch } from "../core/hybrid-retrieval";
+import { isEmbeddingsEnabled } from "../core/embeddings";
+import { answerInterviewQuestion, predictLikelyQuestions, refreshPreparedAnswers } from "../core/interview";
 
 const server = new McpServer({
   name: "memorygraph",
@@ -180,13 +183,98 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  "memorygraph_hybrid_search",
+  {
+    title: "Hybrid memory search",
+    description:
+      "Search the memory graph using the full hybrid retrieval engine: " +
+      "BM25 text relevance, optional vector/cosine similarity, keyword/topic match, " +
+      "fuzzy n-gram matching, graph edge walk, importance weighting, and temporal decay. " +
+      "Each result includes a finalScore and an explanation of which signals fired. " +
+      "Use this when you need explainable, ranked memory retrieval.",
+    inputSchema: {
+      query: z.string().min(1).describe("Search query."),
+      topK: z.number().int().min(1).max(50).optional().describe("Max results (default 15)."),
+      personFilter: z.string().optional().describe("Only return memories for this person ID."),
+      typeFilter: z.string().optional().describe("Only return memories of this type."),
+    },
+  },
+  async ({ query, topK, personFilter, typeFilter }) => {
+    const results = await hybridSearch(query, { topK, personFilter, typeFilter });
+    return textResult({
+      engine: "hybrid",
+      embeddingsEnabled: isEmbeddingsEnabled(),
+      resultCount: results.length,
+      results: results.map((r) => ({
+        memoryId: r.memoryId,
+        content: r.content,
+        type: r.type,
+        personName: r.personName,
+        callTitle: r.callTitle,
+        finalScore: Math.round(r.finalScore * 1000) / 1000,
+        signals: Object.fromEntries(
+          Object.entries(r.signals).filter(([, v]) => v > 0).map(([k, v]) => [k, Math.round(v * 1000) / 1000]),
+        ),
+        explanation: r.explanation,
+      })),
+    });
+  },
+);
+
+// ─── Interview Copilot Tools ────────────────────────────────────────────────
+
+server.registerTool(
+  "memorygraph_prepare_interview",
+  {
+    title: "Prepare interview answers",
+    description:
+      "Refresh the prepared-answer cache from the memory graph and return likely next interview questions for the current context. " +
+      "Use this before or during an interview so answers are already ready when questions are asked.",
+    inputSchema: {
+      context: z.string().optional().describe("Current interview topic, transcript, job/company, or visible context."),
+      limit: z.number().int().min(1).max(20).optional().describe("Number of likely questions to return."),
+      refresh: z.boolean().optional().describe("Whether to rebuild the answer cache first. Defaults true."),
+    },
+  },
+  async ({ context, limit, refresh }) => {
+    const refreshed = refresh === false ? { generated: 0 } : await refreshPreparedAnswers();
+    const likelyNext = await predictLikelyQuestions(context || "", { limit });
+    return textResult({ ok: true, ...refreshed, likelyNext });
+  },
+);
+
+server.registerTool(
+  "memorygraph_answer_interview",
+  {
+    title: "Answer interview question",
+    description:
+      "Return an interview-ready answer from the prepared cache. If no close match exists, generate one from memory, store it, and return likely follow-up questions.",
+    inputSchema: {
+      question: z.string().min(1).describe("Interview question to answer."),
+      transcript: z.string().optional().describe("Recent transcript context to capture or use for likely-next prediction."),
+      sessionId: z.string().optional().describe("Optional interview/session identifier."),
+      autoCapture: z.boolean().optional().describe("Capture transcript into memory before answering. Defaults true."),
+    },
+  },
+  async ({ question, transcript, sessionId, autoCapture }) => {
+    const result = await answerInterviewQuestion({
+      question,
+      transcript,
+      sessionId,
+      autoCapture,
+    });
+    return textResult(result);
+  },
+);
+
 // ─── Boot ───────────────────────────────────────────────────────────────────
 
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("[memorygraph] MCP server running on stdio");
-  console.error("[memorygraph] 7 tools available: ingest, live, context, summary, system_prompt, insight, action");
+  console.error("[memorygraph] 10 tools: ingest, live, context, summary, system_prompt, insight, action, hybrid_search, prepare_interview, answer_interview");
 }
 
 function textResult(value: unknown) {

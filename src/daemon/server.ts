@@ -8,6 +8,11 @@ import { retrieveContext } from "../core/retrieval";
 import { getLiveAnswer } from "../core/live-answer";
 import { getNeuralGraph } from "../core/graph";
 import { getCluelyInsight, buildCluelySystemPrompt, handleCluelyAction } from "../cluely/adapter";
+import { hybridSearch } from "../core/hybrid-retrieval";
+import { isEmbeddingsEnabled, embedUnembeddedMemories } from "../core/embeddings";
+import { analyzeConsolidation, pruneStaleMemories } from "../core/consolidation";
+import { exportGraph, importGraph, type GraphSnapshot } from "../core/export";
+import { answerInterviewQuestion, predictLikelyQuestions, refreshPreparedAnswers } from "../core/interview";
 
 export type DaemonConfig = {
   port: number;
@@ -49,7 +54,20 @@ export function createDaemon(config: DaemonConfig) {
         } else if (msg.type === "cluely_action") {
           const { action, ...params } = msg;
           const result = await handleCluelyAction(action, params);
-          ws.send(JSON.stringify({ type: "cluely_action_result", ...result }));
+          ws.send(JSON.stringify({ event: "cluely_action_result", ...result }));
+        } else if (msg.type === "interview_answer") {
+          const result = await answerInterviewQuestion({
+            question: msg.question || msg.dialogue || msg.text || "",
+            transcript: msg.transcript || msg.context,
+            sessionId: msg.sessionId,
+            autoCapture: msg.autoCapture !== false,
+          });
+          ws.send(JSON.stringify({ type: "interview_answer", ...result }));
+        } else if (msg.type === "interview_prepare") {
+          const likelyNext = await predictLikelyQuestions(msg.context || msg.dialogue || "", {
+            limit: msg.limit,
+          });
+          ws.send(JSON.stringify({ type: "interview_prepare", ok: true, likelyNext }));
         } else {
           ws.send(JSON.stringify({ type: "error", message: `Unknown message type: ${msg.type}` }));
         }
@@ -63,6 +81,9 @@ export function createDaemon(config: DaemonConfig) {
     console.log(`[memorygraph] daemon running on ${config.host}:${config.port}`);
     console.log(`[memorygraph] ws://localhost:${config.port} for real-time context`);
     console.log(`[memorygraph] REST API at http://localhost:${config.port}/api/*`);
+    refreshPreparedAnswers()
+      .then((result) => console.log(`[memorygraph] prepared ${result.generated} interview answers`))
+      .catch(() => console.log("[memorygraph] prepared answer cache will refresh after first ingest"));
   });
 
   return { server, wss, broadcast };
@@ -143,6 +164,96 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     if (path === "/api/v1/events" && req.method === "GET") {
       return json(res, await eventsHandler());
     }
+    if (path === "/api/v1/interview/answer" && req.method === "POST") {
+      const body = await readBody(req) as {
+        question?: string;
+        dialogue?: string;
+        text?: string;
+        transcript?: string;
+        context?: string;
+        sessionId?: string;
+        autoCapture?: boolean;
+      };
+      return json(
+        res,
+        await answerInterviewQuestion({
+          question: body.question || body.dialogue || body.text || "",
+          transcript: body.transcript || body.context,
+          sessionId: body.sessionId,
+          autoCapture: body.autoCapture !== false,
+        }),
+      );
+    }
+    if (path === "/api/v1/interview/prepare" && req.method === "POST") {
+      const body = await readBody(req) as { context?: string; query?: string; limit?: number; refresh?: boolean };
+      const refreshed = body.refresh === false ? { generated: 0 } : await refreshPreparedAnswers();
+      const likelyNext = await predictLikelyQuestions(body.context || body.query || "", { limit: body.limit });
+      return json(res, { ok: true, ...refreshed, likelyNext });
+    }
+    if (path === "/api/v1/interview/prepare" && req.method === "GET") {
+      const query = url.searchParams.get("query") || "";
+      const limit = Number(url.searchParams.get("limit") || 12);
+      const answers = await predictLikelyQuestions(query, { limit });
+      return json(res, { ok: true, answers });
+    }
+
+    // ── Hybrid retrieval endpoint ────────────────────────────────────────
+    if (path === "/api/v1/hybrid-search" && req.method === "POST") {
+      const body = await readBody(req) as { query: string; topK?: number; personFilter?: string; typeFilter?: string };
+      const results = await hybridSearch(body.query || "", {
+        topK: body.topK,
+        personFilter: body.personFilter,
+        typeFilter: body.typeFilter,
+      });
+      return json(res, {
+        ok: true,
+        engine: "hybrid",
+        embeddingsEnabled: isEmbeddingsEnabled(),
+        signals: isEmbeddingsEnabled()
+          ? ["tfidf", "vector", "keyword", "fuzzy", "graph", "importance", "temporal"]
+          : ["tfidf", "keyword", "fuzzy", "graph", "importance", "temporal"],
+        resultCount: results.length,
+        results: results.map((r) => ({
+          memoryId: r.memoryId,
+          content: r.content,
+          type: r.type,
+          personName: r.personName,
+          callTitle: r.callTitle,
+          finalScore: Math.round(r.finalScore * 1000) / 1000,
+          signals: Object.fromEntries(
+            Object.entries(r.signals).filter(([, v]) => v > 0).map(([k, v]) => [k, Math.round(v * 1000) / 1000]),
+          ),
+          explanation: r.explanation,
+        })),
+      });
+    }
+
+    // ── Graph maintenance ───────────────────────────────────────────────
+    if (path === "/api/v1/consolidation" && req.method === "GET") {
+      const report = await analyzeConsolidation();
+      return json(res, { ok: true, ...report });
+    }
+    if (path === "/api/v1/prune" && req.method === "POST") {
+      const body = await readBody(req) as { staleDays?: number; maxImportance?: number };
+      const result = await pruneStaleMemories(body);
+      return json(res, { ok: true, ...result });
+    }
+    if (path === "/api/v1/export" && req.method === "GET") {
+      const snapshot = await exportGraph();
+      return json(res, snapshot);
+    }
+    if (path === "/api/v1/import" && req.method === "POST") {
+      const snapshot = await readBody(req) as GraphSnapshot;
+      const result = await importGraph(snapshot);
+      return json(res, { ok: true, ...result });
+    }
+    if (path === "/api/v1/embed" && req.method === "POST") {
+      if (!isEmbeddingsEnabled()) {
+        return json(res, { ok: false, error: "Set OPENAI_API_KEY to enable embeddings." });
+      }
+      const count = await embedUnembeddedMemories();
+      return json(res, { ok: true, embedded: count });
+    }
 
     // ── Cluely-specific endpoints ──────────────────────────────────────
     if (path === "/api/v1/cluely/insight" && req.method === "POST") {
@@ -174,19 +285,30 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
 }
 
 async function healthHandler() {
-  const [calls, people, topics, memories, captures] = await Promise.all([
+  const [calls, people, topics, memories, captures, embeddings, preparedAnswers] = await Promise.all([
     prisma.call.count(),
     prisma.person.count(),
     prisma.topic.count(),
     prisma.memory.count(),
     prisma.captureEvent.count(),
+    prisma.embedding.count(),
+    prisma.preparedAnswer.count(),
   ]);
   return {
     ok: true,
     service: "memorygraph-daemon",
     version: "1.0.0",
     uptime: process.uptime(),
-    counts: { calls, people, topics, memories, captures },
+    counts: { calls, people, topics, memories, captures, embeddings, preparedAnswers },
+    retrieval: {
+      engine: "hybrid",
+      signals: isEmbeddingsEnabled()
+        ? ["tfidf/bm25", "vector/cosine", "keyword/topic", "fuzzy/ngram", "graph/walk", "importance", "temporal/decay"]
+        : ["tfidf/bm25", "keyword/topic", "fuzzy/ngram", "graph/walk", "importance", "temporal/decay"],
+      embeddingsEnabled: isEmbeddingsEnabled(),
+      embeddingsStored: embeddings,
+      embeddingsPending: memories - embeddings,
+    },
   };
 }
 
@@ -220,6 +342,7 @@ async function graphHandler() {
       memories: graph.memories.length,
       edges: graph.edges.length,
       patterns: graph.patterns.length,
+      preparedAnswers: graph.preparedAnswers.length,
     },
     hotTopics: graph.topics.slice(0, 20).map((t) => ({
       name: t.name,
@@ -233,6 +356,14 @@ async function graphHandler() {
       confidence: p.confidence,
       person: p.person?.name,
       topic: p.topic?.name,
+    })),
+    preparedAnswers: graph.preparedAnswers.slice(0, 40).map((answer) => ({
+      id: answer.id,
+      question: answer.question,
+      topic: answer.topic,
+      confidence: answer.confidence,
+      usageCount: answer.usageCount,
+      updatedAt: answer.updatedAt,
     })),
   };
 }

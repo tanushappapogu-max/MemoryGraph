@@ -72,6 +72,15 @@ export type CluelyActionResult = {
   data: Record<string, unknown>;
 };
 
+export type PreparedInterviewAnswer = {
+  id?: string;
+  question: string;
+  answer: string;
+  topic: string;
+  confidence: number;
+  evidence: string[];
+};
+
 export function createMemoryGraphClient(options: MemoryGraphClientOptions = {}) {
   const baseUrl = (options.baseUrl || "http://127.0.0.1:3033").replace(/\/$/, "");
   const wsUrl = options.wsUrl || baseUrl.replace(/^http/, "ws");
@@ -130,6 +139,29 @@ export function createMemoryGraphClient(options: MemoryGraphClientOptions = {}) 
 
     async events() {
       return request(fetcher, `${baseUrl}/api/v1/events`);
+    },
+
+    // ── Interview Copilot ─────────────────────────────────────────────
+
+    async prepareInterview(context = "", options: { refresh?: boolean; limit?: number } = {}) {
+      return request(fetcher, `${baseUrl}/api/v1/interview/prepare`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ context, refresh: options.refresh, limit: options.limit }),
+      });
+    },
+
+    async answerInterview(input: {
+      question: string;
+      transcript?: string;
+      sessionId?: string;
+      autoCapture?: boolean;
+    }): Promise<PreparedInterviewAnswer & { ok: true; cached: boolean; likelyNext: PreparedInterviewAnswer[] }> {
+      return request(fetcher, `${baseUrl}/api/v1/interview/answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
     },
 
     // ── Cluely Integration ────────────────────────────────────────────
@@ -202,6 +234,14 @@ export function createMemoryGraphClient(options: MemoryGraphClientOptions = {}) 
         /** Execute a Custom Action */
         action(action: string, params: Record<string, string> = {}) {
           socket.send(JSON.stringify({ type: "cluely_action", action, ...params }));
+        },
+        /** Get or generate an interview-ready answer */
+        interviewAnswer(question: string, transcript?: string) {
+          socket.send(JSON.stringify({ type: "interview_answer", question, transcript }));
+        },
+        /** Predict likely next interview questions */
+        interviewPrepare(context: string, limit?: number) {
+          socket.send(JSON.stringify({ type: "interview_prepare", context, limit }));
         },
         close() {
           socket.close();
