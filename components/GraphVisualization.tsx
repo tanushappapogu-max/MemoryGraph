@@ -16,11 +16,22 @@ type SelectedNode = {
   label: string;
   type: string;
   detail: string;
+  connections: ConnectionDetail[];
+};
+
+type ConnectionDetail = {
+  id: string;
+  label: string;
+  type: string;
+  detail: string;
+  relationship: string;
+  count: number;
 };
 
 type VisNode = {
   id: string;
   label: string;
+  _fullLabel?: string;
   _type: string;
   _detail: string;
   [key: string]: unknown;
@@ -29,6 +40,7 @@ type VisNode = {
 type VisEdge = {
   from: string;
   to: string;
+  _relationship?: string;
   [key: string]: unknown;
 };
 
@@ -73,6 +85,7 @@ export default function GraphVisualization() {
         nodesArray.push({
           id: `topic:${t.name}`,
           label: t.name,
+          _fullLabel: t.name,
           size,
           color: {
             background: categoryColor(t.category),
@@ -95,6 +108,7 @@ export default function GraphVisualization() {
           nodesArray.push({
             id: `person:${p.person}`,
             label: p.person,
+            _fullLabel: p.person,
             size: 20,
             color: {
               background: "#22c55e",
@@ -115,6 +129,7 @@ export default function GraphVisualization() {
           edgesArray.push({
             from: `person:${p.person}`,
             to: `topic:${p.topic}`,
+            _relationship: "pattern link",
             color: { color: "rgba(255,255,255,0.08)", highlight: "rgba(34,197,94,0.4)" },
             width: Math.max(1, p.confidence * 0.3),
             smooth: { type: "continuous", roundness: 0.3 },
@@ -127,6 +142,7 @@ export default function GraphVisualization() {
         nodesArray.push({
           id: `prepared:${answer.id}`,
           label: answer.question.length > 34 ? `${answer.question.slice(0, 31)}...` : answer.question,
+          _fullLabel: answer.question,
           size: Math.max(14, Math.min(34, 10 + answer.confidence / 5)),
           color: {
             background: "#0ea5e9",
@@ -145,6 +161,7 @@ export default function GraphVisualization() {
           edgesArray.push({
             from: `prepared:${answer.id}`,
             to: `topic:${answer.topic}`,
+            _relationship: "prepared from topic",
             color: { color: "rgba(14,165,233,0.16)", highlight: "rgba(56,189,248,0.6)" },
             width: Math.max(1, answer.confidence / 35),
             dashes: true,
@@ -160,6 +177,7 @@ export default function GraphVisualization() {
             edgesArray.push({
               from: `topic:${graph.hotTopics[i].name}`,
               to: `topic:${graph.hotTopics[j].name}`,
+              _relationship: `same ${graph.hotTopics[i].category} cluster`,
               color: { color: "rgba(255,255,255,0.04)", highlight: "rgba(255,255,255,0.15)" },
               width: 0.5,
               smooth: { type: "continuous", roundness: 0.5 },
@@ -217,7 +235,13 @@ export default function GraphVisualization() {
           const nodeId = params.nodes[0];
           const node = nodesArray.find((n) => n.id === nodeId);
           if (node) {
-            setSelected({ id: node.id, label: node.label, type: node._type, detail: node._detail });
+            setSelected({
+              id: node.id,
+              label: node._fullLabel || node.label,
+              type: node._type,
+              detail: node._detail,
+              connections: getNodeConnections(node.id, nodesArray, edgesArray),
+            });
           }
         } else {
           setSelected(null);
@@ -265,11 +289,47 @@ export default function GraphVisualization() {
 
       {/* Selected node detail */}
       {selected && (
-        <div className="absolute top-4 right-4 bg-zinc-900/95 border border-zinc-800 rounded-xl p-4 max-w-[240px] backdrop-blur-lg shadow-2xl">
-          <div className="text-xs font-bold text-white">{selected.label}</div>
-          <div className="text-[10px] text-zinc-400 mt-1 uppercase tracking-wider">{selected.type}</div>
-          <div className="text-[11px] text-zinc-400 mt-2 leading-relaxed">{selected.detail}</div>
-          <button onClick={() => setSelected(null)} className="mt-3 text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">
+        <div className="absolute top-4 right-4 max-h-[calc(100vh-2rem)] w-[340px] overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/95 shadow-2xl backdrop-blur-lg">
+          <div className="border-b border-zinc-800/70 p-4">
+            <div className="text-xs font-bold leading-snug text-white">{selected.label}</div>
+            <div className="mt-1 text-[10px] uppercase tracking-wider text-zinc-500">{selected.type} neuron</div>
+            <div className="mt-2 text-[11px] leading-relaxed text-zinc-400">{selected.detail}</div>
+          </div>
+
+          <div className="max-h-[420px] overflow-y-auto p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Connected neurons</div>
+              <div className="text-[10px] text-zinc-600">{selected.connections.length}</div>
+            </div>
+
+            {selected.connections.length === 0 ? (
+              <div className="rounded-md border border-zinc-800/70 bg-zinc-900/40 p-3 text-[11px] text-zinc-500">
+                No direct graph links yet. More captures will create edges as the memory expands.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {selected.connections.map((connection) => (
+                  <div key={`${connection.id}:${connection.relationship}`} className="rounded-md border border-zinc-800/70 bg-zinc-900/50 p-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-[11px] font-semibold text-zinc-200">{connection.label}</div>
+                        <div className="mt-0.5 text-[9px] uppercase tracking-wider text-zinc-600">{connection.type}</div>
+                      </div>
+                      {connection.count > 1 && (
+                        <div className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] font-semibold text-zinc-400">
+                          {connection.count}x
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-2 text-[10px] text-sky-400/80">{connection.relationship}</div>
+                    <div className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-zinc-500">{connection.detail}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button onClick={() => setSelected(null)} className="w-full border-t border-zinc-800/70 px-4 py-2 text-left text-[10px] text-zinc-600 transition-colors hover:bg-zinc-900 hover:text-zinc-400">
             dismiss
           </button>
         </div>
@@ -310,4 +370,38 @@ function categoryColorBright(category: string): string {
     case "product": return "#4ade80";
     default: return "#a1a1aa";
   }
+}
+
+function getNodeConnections(nodeId: string, nodes: VisNode[], edges: VisEdge[]): ConnectionDetail[] {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const grouped = new Map<string, ConnectionDetail>();
+
+  for (const edge of edges) {
+    if (edge.from !== nodeId && edge.to !== nodeId) continue;
+    const otherId = edge.from === nodeId ? edge.to : edge.from;
+    const other = nodeById.get(otherId);
+    if (!other) continue;
+
+    const relationship = edge._relationship || "direct link";
+    const key = `${other.id}:${relationship}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.count += 1;
+      continue;
+    }
+
+    grouped.set(key, {
+      id: other.id,
+      label: other._fullLabel || other.label,
+      type: other._type,
+      detail: other._detail,
+      relationship,
+      count: 1,
+    });
+  }
+
+  return Array.from(grouped.values()).sort((left, right) => {
+    if (right.count !== left.count) return right.count - left.count;
+    return left.label.localeCompare(right.label);
+  });
 }
